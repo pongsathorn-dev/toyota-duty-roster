@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดเวรรายวัน</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700;800&display=swap');
+        body { font-family: 'Sarabun', sans-serif; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+        [x-cloak] { display: none !important; }
+        .modal-backdrop { background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen pb-10">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-sm">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="bg-blue-600 p-1.5 rounded-lg text-white">
+                    <i data-lucide="calendar"></i>
+                </div>
+                <h1 class="text-xl font-bold text-slate-800 hidden sm:block">ระบบจัดเวรรายวัน</h1>
+            </div>
+            <div class="flex items-center gap-2" id="auth-controls">
+                <!-- Buttons will be injected here -->
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4 md:p-6">
+        <div id="firebase-status" class="mb-4 hidden rounded-2xl border px-4 py-3 text-sm font-bold"></div>
+
+        <!-- Dashboard / Calendar View -->
+        <div id="calendar-view" class="space-y-8">
+            <div class="space-y-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex items-center gap-4">
+                        <h2 id="current-month-year" class="text-2xl font-black text-slate-800"></h2>
+                        <div class="flex bg-slate-100 p-1 rounded-xl">
+                            <button onclick="changeMonth(-1)" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
+                                <i data-lucide="chevron-left"></i>
+                            </button>
+                            <button onclick="goToday()" class="px-3 text-xs font-bold text-slate-600">วันนี้</button>
+                            <button onclick="changeMonth(1)" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
+                                <i data-lucide="chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="swap-step-indicator" class="hidden bg-blue-50 border border-blue-200 px-6 py-3 rounded-2xl flex items-center gap-3 animate-pulse shadow-sm">
+                        <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm"><i data-lucide="arrow-right-left"></i></div>
+                        <div class="flex flex-col">
+                            <span class="text-sm font-black text-blue-800 uppercase tracking-tight">ขั้นตอนที่ 2: เลือกวันที่ปลายทาง</span>
+                            <span class="text-[10px] text-blue-600 font-bold">คลิกวันที่ในปฏิทินเพื่อแลกเปลี่ยน</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calendar-grid gap-1 md:gap-3" id="calendar-days-header">
+                    <!-- Days header will be injected here -->
+                </div>
+                <div class="calendar-grid gap-1 md:gap-3" id="calendar-body">
+                    <!-- Calendar cells will be injected here -->
+                </div>
+            </div>
+
+            <!-- Swap History -->
+            <div class="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
+                <div class="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-blue-600 p-3 rounded-2xl text-white shadow-lg shadow-blue-100"><i data-lucide="history"></i></div>
+                        <div>
+                            <h3 class="text-xl font-black text-slate-800">ประวัติการแลกเวรรายบุคคล</h3>
+                            <p class="text-sm text-slate-500 font-bold uppercase tracking-wide opacity-70">สรุปรายการสลับตัวสมาชิก</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 md:p-8" id="swaps-history-list">
+                    <!-- Swaps will be injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Panel -->
+        <div id="admin-panel" class="hidden space-y-8">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div class="flex bg-white p-1.5 rounded-[24px] shadow-sm border border-slate-200 w-fit">
+                    <button onclick="setAdminTab('groups')" id="tab-groups" class="px-8 py-3 rounded-[18px] text-sm font-black transition-all bg-blue-600 text-white shadow-xl shadow-blue-100">จัดการกลุ่มเวร</button>
+                    <button onclick="setAdminTab('members')" id="tab-members" class="px-8 py-3 rounded-[18px] text-sm font-black transition-all text-slate-500 hover:bg-slate-50">ฐานข้อมูลสมาชิก</button>
+                </div>
+                <div class="bg-white p-5 rounded-[32px] border border-slate-200 shadow-sm flex flex-col items-end gap-2">
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">วันที่กลุ่ม 1 เริ่มลงเวร</p>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <button type="button" onclick="startPickingRosterStartDate()" class="flex items-center justify-center gap-3 text-lg font-black text-blue-600 bg-blue-50 px-5 py-2 rounded-2xl border border-blue-100 hover:bg-blue-100 transition-all">
+                            <span id="display-start-date"></span>
+                            <i data-lucide="calendar-days" class="w-5 h-5 pointer-events-none"></i>
+                        </button>
+                        <button type="button" onclick="confirmClearMonthlyRoster()" class="flex items-center justify-center gap-2 text-sm font-black text-red-600 bg-red-50 px-4 py-2 rounded-2xl border border-red-100 hover:bg-red-100 transition-all">
+                            <i data-lucide="eraser" class="w-4 h-4 pointer-events-none"></i>
+                            เคลียร์เดือนนี้
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="admin-content">
+                <!-- Groups or Members list will be injected here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <div id="modal-container" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 modal-backdrop">
+        <!-- Dynamic Modal Content -->
+        <div id="modal-content" class="w-full max-w-lg"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        window.__firebase_config = JSON.stringify({
+            apiKey: "AIzaSyD0NqRurJ_RjBfgjK1EHC16NyCg4XNv3eM",
+            authDomain: "toyota-duty-roster.firebaseapp.com",
+            projectId: "toyota-duty-roster",
+            storageBucket: "toyota-duty-roster.firebasestorage.app",
+            messagingSenderId: "524058922840",
+            appId: "1:524058922840:web:5b58a6de0bd8a4dd1cdf2d",
+            measurementId: "G-V56T0M8633"
+        });
+        window.__app_id = 'toyota-duty-roster';
+        window.__initial_auth_token = null; // Set if using custom auth
+    </script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, addDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+
+        // --- Config ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'duty-roster-html-v1';
+
+        // --- State ---
+        let user = null;
+        let isAdminMode = false;
+        let showAdminPanel = false;
+        let activeAdminTab = 'groups';
+        let currentDate = new Date();
+        let allMembers = [];
+        let groups = [];
+        let overrides = {};
+        let swaps = [];
+        let settings = { startDate: getLocalDateKey(new Date()) };
+        let dataLoaded = false;
+        let firebaseStatus = { type: 'loading', message: 'กำลังเชื่อมต่อ Firebase...' };
+        let firebaseHasError = false;
+        let isPickingRosterStartDate = false;
+
+        // Swap Wizard State
+        let swapStep = 0; // 0: Idle, 1: Select Source, 2: Select Target Date, 3: Select Target Person
+        let sourceData = { date: null, memberIndex: null, memberId: null };
+        let targetData = { date: null, memberIndex: null, memberId: null };
+
+        const MONTHS_TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+        const DAYS_OF_WEEK = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+
+        // --- Initialize ---
+        window.onload = async () => {
+            render();
+            initAuth();
+            lucide.createIcons();
+        };
+
+        function startDataListeners() {
+            if (dataLoaded) return;
+            dataLoaded = true;
+            loadData();
+        }
+
+        async function initAuth() {
+            setFirebaseStatus('loading', 'กำลังเชื่อมต่อ Firebase...');
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                if (user) {
+                    setFirebaseStatus('loading', 'เชื่อมต่อบัญชีชั่วคราวแล้ว กำลังโหลดข้อมูล...');
+                    startDataListeners();
+                }
+                renderAuthControls();
+            });
+
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error('Firebase Auth failed:', error);
+                setFirebaseStatus('error', firebaseErrorMessage(error, 'เข้าสู่ระบบ Firebase ไม่สำเร็จ'));
+                startDataListeners();
+                renderAuthControls();
+            }
+        }
+
+        function loadData() {
+            const rootPath = `artifacts/${appId}/public/data`;
+            
+            onSnapshot(collection(db, rootPath, 'members'), (s) => {
+                setFirebaseStatus('connected', 'เชื่อมต่อ Firebase แล้ว');
+                allMembers = s.docs.map((d, index) => ({ id: d.id, _snapshotIndex: index, ...d.data() })).sort((a,b) => {
+                    const aCreatedAt = a.createdAt || '';
+                    const bCreatedAt = b.createdAt || '';
+                    if (aCreatedAt && bCreatedAt && aCreatedAt !== bCreatedAt) return aCreatedAt.localeCompare(bCreatedAt);
+                    if (aCreatedAt && !bCreatedAt) return 1;
+                    if (!aCreatedAt && bCreatedAt) return -1;
+                    return a._snapshotIndex - b._snapshotIndex;
+                });
+                render();
+            }, handleFirestoreError('members'));
+
+            onSnapshot(collection(db, rootPath, 'groups'), (s) => {
+                setFirebaseStatus('connected', 'เชื่อมต่อ Firebase แล้ว');
+                groups = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.name || '').localeCompare(b.name || '', 'th'));
+                render();
+            }, handleFirestoreError('groups'));
+
+            onSnapshot(collection(db, rootPath, 'overrides'), (s) => {
+                setFirebaseStatus('connected', 'เชื่อมต่อ Firebase แล้ว');
+                overrides = {};
+                s.docs.forEach(d => { overrides[d.id] = d.data(); });
+                render();
+            }, handleFirestoreError('overrides'));
+
+            onSnapshot(collection(db, rootPath, 'swaps'), (s) => {
+                setFirebaseStatus('connected', 'เชื่อมต่อ Firebase แล้ว');
+                swaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+                render();
+            }, handleFirestoreError('swaps'));
+
+            onSnapshot(doc(db, rootPath, 'settings', 'global'), (d) => {
+                setFirebaseStatus('connected', 'เชื่อมต่อ Firebase แล้ว');
+                if (d.exists()) {
+                    settings = { ...settings, ...d.data() };
+                }
+                render();
+            }, handleFirestoreError('settings'));
+        }
+
+        // --- Core Logic ---
+        function getAutoDutyData(dateStr) {
+            if (groups.length === 0) return { group: null, memberIds: [] };
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const targetDate = new Date(y, m - 1, d, 12, 0, 0);
+
+            const rosterStartDate = getRosterStartDateForMonth(dateStr);
+            if (!rosterStartDate) return { group: null, memberIds: [] };
+
+            const [sy, sm, sd] = rosterStartDate.split('-').map(Number);
+            const startDate = new Date(sy, sm - 1, sd, 12, 0, 0);
+
+            const diffTime = targetDate.getTime() - startDate.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) return { group: null, memberIds: [] };
+            if (targetDate.getFullYear() !== startDate.getFullYear() || targetDate.getMonth() !== startDate.getMonth()) {
+                return { group: null, memberIds: [] };
+            }
+            const group = groups[diffDays % groups.length];
+            return { group, memberIds: group.memberIds || [] };
+        }
+
+        function getDutyMembers(dateStr) {
+            const autoData = getAutoDutyData(dateStr);
+            if (overrides[dateStr]) {
+                return {
+                    memberIds: overrides[dateStr].memberIds,
+                    groupName: autoData.group?.name || "สลับเวรรายบุคคล",
+                    isOverride: true,
+                    swappedMemberIds: overrides[dateStr].swappedMemberIds || []
+                };
+            }
+            return { memberIds: autoData.memberIds, groupName: autoData.group?.name || null, isOverride: false, swappedMemberIds: [] };
+        }
+
+        // --- Render Functions ---
+        function render() {
+            renderHeader();
+            renderFirebaseStatus();
+            if (showAdminPanel) {
+                renderAdmin();
+            } else {
+                renderCalendar();
+                renderHistory();
+            }
+            lucide.createIcons();
+        }
+
+        function setFirebaseStatus(type, message) {
+            if (type === 'loading') firebaseHasError = false;
+            if (type === 'error') firebaseHasError = true;
+            if (type === 'connected' && firebaseHasError) return;
+            firebaseStatus = { type, message };
+            renderFirebaseStatus();
+        }
+
+        function renderFirebaseStatus() {
+            const el = document.getElementById('firebase-status');
+            if (!el) return;
+
+            if (!firebaseStatus || firebaseStatus.type === 'connected') {
+                el.className = 'mb-4 hidden rounded-2xl border px-4 py-3 text-sm font-bold';
+                el.innerText = '';
+                return;
+            }
+
+            const styles = {
+                loading: 'mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800',
+                error: 'mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700'
+            };
+            el.className = styles[firebaseStatus.type] || styles.error;
+            el.innerText = firebaseStatus.message;
+        }
+
+        function handleFirestoreError(collectionName) {
+            return (error) => {
+                console.error(`Firestore listener failed (${collectionName}):`, error);
+                setFirebaseStatus('error', firebaseErrorMessage(error, `โหลดข้อมูล ${collectionName} ไม่สำเร็จ`));
+            };
+        }
+
+        function firebaseErrorMessage(error, fallback) {
+            const code = error?.code || 'unknown';
+            const detail = error?.message ? ` (${error.message})` : '';
+
+            if (code === 'permission-denied') {
+                return `${fallback}: Firestore rules ไม่อนุญาตให้โปรเจกต์นี้อ่าน/เขียนข้อมูล กรุณาเปิด Anonymous Authentication และตั้ง rules ให้ผู้ใช้ที่ sign in แล้วเข้าถึง artifacts/${appId}/public/data ได้`;
+            }
+            if (code === 'auth/configuration-not-found' || code === 'auth/admin-restricted-operation') {
+                return `${fallback}: ยังไม่ได้เปิด Anonymous Authentication ใน Firebase Console`;
+            }
+            if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key') {
+                return `${fallback}: Firebase apiKey หรือ project config ไม่ถูกต้อง`;
+            }
+            if (code === 'unavailable' || code === 'deadline-exceeded') {
+                return `${fallback}: ติดต่อ Firebase ไม่ได้ชั่วคราว กรุณาตรวจอินเทอร์เน็ตหรือสถานะ Firebase`;
+            }
+            return `${fallback}: ${code}${detail}`;
+        }
+
+        function showFirestoreWriteError(error, fallback) {
+            console.error(fallback, error);
+            const message = firebaseErrorMessage(error, fallback);
+            setFirebaseStatus('error', message);
+            alert(message);
+        }
+
+        function renderHeader() {
+            const container = document.getElementById('auth-controls');
+            let html = '';
+            if (isAdminMode) {
+                html += `
+                    <button onclick="toggleAdminPanel()" class="flex items-center gap-1 text-sm font-bold px-4 py-2 rounded-full transition-all ${showAdminPanel ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-100'}">
+                        <i data-lucide="${showAdminPanel ? 'calendar' : 'settings'}" class="w-4 h-4"></i>
+                        ${showAdminPanel ? 'ดูปฏิทิน' : 'โหมดจัดการ'}
+                    </button>
+                    <button onclick="logoutAdmin()" class="text-red-500 hover:bg-red-50 px-3 py-2 rounded-full text-sm font-bold flex items-center gap-1">
+                        <i data-lucide="log-out" class="w-4 h-4"></i> ออก
+                    </button>
+                `;
+            } else {
+                html += `
+                    <button onclick="showLoginModal()" class="bg-slate-800 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 hover:bg-slate-900 shadow-md">
+                        <i data-lucide="log-in" class="w-4 h-4"></i> Admin Login
+                    </button>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function renderAuthControls() {
+            renderHeader();
+        }
+
+        function renderCalendar() {
+            const view = document.getElementById('calendar-view');
+            const adminView = document.getElementById('admin-panel');
+            view.classList.remove('hidden');
+            adminView.classList.add('hidden');
+
+            document.getElementById('current-month-year').innerText = `${MONTHS_TH[currentDate.getMonth()]} ${currentDate.getFullYear() + 543}`;
+            
+            const header = document.getElementById('calendar-days-header');
+            header.innerHTML = DAYS_OF_WEEK.map((d, i) => `
+                <div class="text-center py-2 text-xs font-black uppercase tracking-widest ${i === 0 ? 'text-red-500' : i === 6 ? 'text-purple-500' : 'text-slate-400'}">${d}</div>
+            `).join('');
+
+            const body = document.getElementById('calendar-body');
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const startDay = new Date(year, month, 1).getDay();
+            const totalDays = new Date(year, month + 1, 0).getDate();
+            
+            let html = '';
+            for (let i = 0; i < startDay; i++) {
+                html += `<div class="bg-slate-100/30 rounded-2xl min-h-[80px]"></div>`;
+            }
+
+            for (let d = 1; d <= totalDays; d++) {
+                const dateObj = new Date(year, month, d);
+                const dateKey = getLocalDateKey(dateObj);
+                const duty = getDutyMembers(dateKey);
+                const isToday = new Date().toDateString() === dateObj.toDateString();
+                const isRosterStartDate = dateKey === getRosterStartDateForMonth(dateKey);
+                const isSource = sourceData.date === dateKey;
+                const isTarget = targetData.date === dateKey;
+                
+                const isSun = dateObj.getDay() === 0;
+                const isSat = dateObj.getDay() === 6;
+                const bg = isSun ? 'bg-red-50/30' : isSat ? 'bg-purple-50/30' : 'bg-white';
+                const dayStateClasses = [
+                    isToday ? 'ring-2 ring-blue-500 bg-blue-50/20' : '',
+                    isRosterStartDate ? 'border-emerald-400 ring-2 ring-emerald-400 bg-emerald-50/40' : '',
+                    isPickingRosterStartDate ? 'hover:ring-4 hover:ring-emerald-400 hover:border-emerald-500' : '',
+                    isSource ? 'ring-4 ring-amber-500 border-amber-500 shadow-2xl z-10' : '',
+                    isTarget ? 'ring-4 ring-blue-500 border-blue-500 shadow-2xl z-10' : (!isRosterStartDate && !isSource ? 'border-slate-200' : '')
+                ].filter(Boolean).join(' ');
+
+                html += `
+                    <div onclick="handleDayClick('${dateKey}')" class="min-h-[100px] md:min-h-[140px] border rounded-3xl p-3 relative group transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer
+                        ${bg} ${dayStateClasses}">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-sm font-black ${isToday ? 'text-blue-600' : (isSun ? 'text-red-500' : isSat ? 'text-purple-500' : 'text-slate-400')}">${d}</span>
+                            ${isRosterStartDate ? '<div class="bg-emerald-500 text-white p-0.5 rounded-full"><i data-lucide="flag" class="w-3 h-3"></i></div>' : ''}
+                            ${isAdminMode && swapStep === 0 && !isPickingRosterStartDate ? '<div class="opacity-0 group-hover:opacity-100 p-1 text-blue-500"><i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i></div>' : ''}
+                            ${isSource || isTarget ? '<div class="bg-blue-500 text-white p-0.5 rounded-full"><i data-lucide="check" class="w-3 h-3"></i></div>' : ''}
+                        </div>
+                        ${duty.groupName ? `
+                            <div class="space-y-2">
+                                <div class="px-2 py-1 rounded-lg text-[9px] md:text-xs font-black truncate shadow-sm flex items-center justify-between ${duty.isOverride ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-600 text-white'}">
+                                    ${duty.groupName}
+                                    ${duty.isOverride ? '<i data-lucide="alert-triangle" class="w-2 h-2"></i>' : ''}
+                                </div>
+                                <div class="space-y-1">
+                                    ${duty.memberIds.slice(0, 3).map(mid => {
+                                        const m = allMembers.find(am => am.id === mid);
+                                        const isSwappedMember = (duty.swappedMemberIds || []).includes(mid);
+                                        return m ? `
+                                            <div class="flex items-center gap-1.5 text-[9px] md:text-[11px] ${isSwappedMember ? 'text-amber-700 bg-amber-50/90 border-amber-200' : 'text-slate-600 bg-slate-50/80 border-slate-100'} px-2 py-0.5 rounded-lg border truncate font-bold">
+                                                ${isSwappedMember ? '<i data-lucide="arrow-right-left" class="w-2.5 h-2.5 shrink-0"></i>' : ''}
+                                                <span class="truncate">${escapeHtml(m.name)}</span>
+                                            </div>
+                                        ` : '';
+                                    }).join('')}
+                                </div>
+                            </div>
+                        ` : '<div class="h-10 flex items-center justify-center opacity-10"><i data-lucide="calendar"></i></div>'}
+                    </div>
+                `;
+            }
+            body.innerHTML = html;
+            
+            const indicator = document.getElementById('swap-step-indicator');
+            if (isPickingRosterStartDate) {
+                indicator.classList.remove('hidden');
+                indicator.innerHTML = `
+                    <div class="bg-emerald-600 text-white p-1.5 rounded-lg shadow-sm"><i data-lucide="flag"></i></div>
+                    <div class="flex flex-col">
+                        <span class="text-sm font-black text-emerald-800 uppercase tracking-tight">เลือกวันที่กลุ่ม 1 เริ่มลงเวร</span>
+                        <span class="text-[10px] text-emerald-600 font-bold">คลิกวันที่ในปฏิทิน แล้วระบบจะวนกลุ่มถัดไปถึงสิ้นเดือน</span>
+                    </div>
+                `;
+                indicator.classList.remove('bg-blue-50', 'border-blue-200');
+                indicator.classList.add('bg-emerald-50', 'border-emerald-200');
+            } else if (swapStep === 2) {
+                indicator.classList.remove('hidden');
+                indicator.innerHTML = `
+                    <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm"><i data-lucide="arrow-right-left"></i></div>
+                    <div class="flex flex-col">
+                        <span class="text-sm font-black text-blue-800 uppercase tracking-tight">ขั้นตอนที่ 2: เลือกวันที่ปลายทาง</span>
+                        <span class="text-[10px] text-blue-600 font-bold">คลิกวันที่ในปฏิทินเพื่อแลกเปลี่ยน</span>
+                    </div>
+                `;
+                indicator.classList.remove('bg-emerald-50', 'border-emerald-200');
+                indicator.classList.add('bg-blue-50', 'border-blue-200');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('swaps-history-list');
+            if (swaps.length === 0) {
+                list.innerHTML = `<div class="py-20 text-center text-slate-400 italic font-black text-lg opacity-40">ไม่มีประวัติการแลกเวรในขณะนี้</div>`;
+                return;
+            }
+
+            list.innerHTML = swaps.map(item => `
+                <div class="flex flex-col md:flex-row md:items-center justify-between p-6 bg-white rounded-[32px] border border-slate-100 hover:border-blue-300 hover:bg-blue-50/30 transition-all duration-300 shadow-sm group">
+                    <div class="flex flex-col md:flex-row md:items-center gap-4 flex-1">
+                        <div class="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${formatDisplayDate(item.date1)}</p>
+                            <p class="font-black text-slate-700">${escapeHtml(item.member1Name || '-')}</p>
+                        </div>
+                        <div class="flex items-center justify-center">
+                            <div class="bg-blue-600 text-white p-2 rounded-full shadow-lg">
+                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
+                            </div>
+                        </div>
+                        <div class="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${formatDisplayDate(item.date2)}</p>
+                            <p class="font-black text-slate-700">${escapeHtml(item.member2Name || '-')}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between md:justify-end mt-4 md:mt-0 md:ml-8 gap-6">
+                        <div class="text-right">
+                            <p class="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">บันทึกเมื่อ</p>
+                            <p class="text-xs font-black text-slate-400">${formatDateTimeThai(item.updatedAt)}</p>
+                        </div>
+                        ${isAdminMode ? `<button onclick="deleteSwap('${item.id}', '${item.date1}', '${item.date2}')" class="p-4 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all shadow-sm bg-white border border-transparent hover:border-red-100"><i data-lucide="trash-2" class="w-5 h-5"></i></button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderAdmin() {
+            const view = document.getElementById('calendar-view');
+            const adminView = document.getElementById('admin-panel');
+            view.classList.add('hidden');
+            adminView.classList.remove('hidden');
+            const startDate = getRosterStartDateForMonth(getLocalDateKey(currentDate)) || 'ยังไม่ได้เลือก';
+            document.getElementById('display-start-date').innerText = formatDisplayDate(startDate);
+
+            const content = document.getElementById('admin-content');
+            
+            if (activeAdminTab === 'groups') {
+                content.innerHTML = `
+                    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <button onclick="showAddGroupModal()" class="aspect-video bg-white border-2 border-dashed border-slate-200 rounded-[40px] flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-all group shadow-sm hover:shadow-xl">
+                            <div class="bg-slate-50 p-6 rounded-[24px] mb-4 group-hover:bg-blue-50"><i data-lucide="plus" class="w-10 h-10"></i></div>
+                            <span class="font-black text-lg tracking-tight">สร้างกลุ่มใหม่</span>
+                        </button>
+                        ${groups.map(g => `
+                            <div class="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-xl transition-all duration-300">
+                                <div class="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                                    <h3 class="font-black text-slate-800 text-lg">${escapeHtml(g.name || 'ไม่ระบุชื่อกลุ่ม')}</h3>
+                                    <div class="flex gap-2">
+                                        <button onclick="editGroupMembers(${jsStringAttr(g.id)})" class="p-3 text-blue-500 hover:bg-blue-100 rounded-2xl transition-all shadow-sm bg-white"><i data-lucide="users" class="w-4 h-4"></i></button>
+                                        <button onclick="confirmDelete('group', ${jsStringAttr(g.id)})" class="p-3 text-slate-300 hover:text-red-500 rounded-2xl transition-all shadow-sm bg-white"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    </div>
+                                </div>
+                                <div class="p-8 flex-1 space-y-4">
+                                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest flex justify-between">สมาชิกในกลุ่ม <span>${(g.memberIds || []).length} คน</span></p>
+                                    <div class="flex flex-wrap gap-2.5">
+                                        ${(g.memberIds || []).map(mid => {
+                                            const m = allMembers.find(am => am.id === mid);
+                                            return m ? `<span class="text-xs font-black px-4 py-1.5 bg-slate-100 text-slate-600 rounded-xl border border-slate-200/50 shadow-sm">${escapeHtml(m.name)}</span>` : '';
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `
+                    <div class="bg-white rounded-[48px] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div class="p-8 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-6 bg-slate-50/30">
+                            <div class="flex items-center gap-4">
+                                <div class="bg-emerald-600 p-3 rounded-2xl text-white shadow-lg shadow-emerald-100"><i data-lucide="list-ordered" class="w-7 h-7"></i></div>
+                                <div><h3 class="text-xl font-black text-slate-800">รายชื่อสมาชิกทั้งหมด</h3><p class="text-sm text-slate-500 font-black">รวมทั้งสิ้น ${allMembers.length} รายการในระบบ</p></div>
+                            </div>
+                            <button onclick="showAddMemberModal()" class="w-full sm:w-auto bg-emerald-600 text-white px-8 py-4 rounded-[24px] text-sm font-black flex items-center justify-center gap-3 shadow-xl shadow-emerald-100 active:scale-95 hover:bg-emerald-700">
+                                <i data-lucide="user-plus" class="w-5 h-5"></i> เพิ่มคนใหม่
+                            </button>
+                        </div>
+                        <div class="p-6 md:p-10 space-y-3">
+                            ${allMembers.map((m, index) => `
+                                <div class="flex items-center justify-between p-5 bg-white rounded-[28px] group border border-slate-100 hover:border-blue-400 hover:bg-blue-50/20 transition-all duration-300 shadow-sm">
+                                    <div class="flex items-center gap-6">
+                                        <div class="w-10 h-10 flex items-center justify-center bg-slate-100 rounded-[18px] text-sm font-black text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all">${index + 1}</div>
+                                        <span class="font-black text-slate-700 text-lg">${escapeHtml(m.name || 'ไม่ระบุชื่อ')}</span>
+                                    </div>
+                                    <button onclick="confirmDelete('member', ${jsStringAttr(m.id)})" class="p-4 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // --- Event Handlers ---
+        window.changeMonth = (val) => {
+            currentDate.setMonth(currentDate.getMonth() + val);
+            render();
+        };
+
+        window.goToday = () => {
+            currentDate = new Date();
+            render();
+        };
+
+        window.startPickingRosterStartDate = () => {
+            isPickingRosterStartDate = true;
+            showAdminPanel = false;
+            resetSwapWizard();
+            render();
+        };
+
+        window.toggleAdminPanel = () => {
+            showAdminPanel = !showAdminPanel;
+            if (showAdminPanel) isPickingRosterStartDate = false;
+            render();
+        };
+
+        window.logoutAdmin = () => {
+            isAdminMode = false;
+            showAdminPanel = false;
+            isPickingRosterStartDate = false;
+            render();
+        };
+
+        window.setAdminTab = (tab) => {
+            activeAdminTab = tab;
+            const tabs = ['groups', 'members'];
+            tabs.forEach(t => {
+                const el = document.getElementById(`tab-${t}`);
+                if (t === tab) {
+                    el.classList.add('bg-blue-600', 'text-white', 'shadow-xl', 'shadow-blue-100');
+                    el.classList.remove('text-slate-500', 'hover:bg-slate-50');
+                } else {
+                    el.classList.remove('bg-blue-600', 'text-white', 'shadow-xl', 'shadow-blue-100');
+                    el.classList.add('text-slate-500', 'hover:bg-slate-50');
+                }
+            });
+            render();
+        };
+
+        window.handleDayClick = async (dateStr) => {
+            if (!isAdminMode) return;
+            if (isPickingRosterStartDate) {
+                const saved = await updateSettings(dateStr);
+                if (!saved) return;
+                const rosterStartDates = getUpdatedRosterStartDates(dateStr);
+                settings = {
+                    ...settings,
+                    startDate: dateStr,
+                    rosterStartDates
+                };
+                isPickingRosterStartDate = false;
+                render();
+                return;
+            }
+            if (swapStep === 0) {
+                sourceData = { date: dateStr, memberIndex: null, memberId: null };
+                swapStep = 1;
+                showSwapModalStep1();
+            } else if (swapStep === 2) {
+                if (dateStr === sourceData.date) return;
+                targetData = { date: dateStr, memberIndex: null, memberId: null };
+                swapStep = 3;
+                showSwapModalStep3();
+            }
+        };
+
+        window.updateSettings = async (val) => {
+            try {
+                const rosterStartDates = getUpdatedRosterStartDates(val);
+                await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), {
+                    startDate: val,
+                    rosterStartDates
+                }, { merge: true });
+                return true;
+            } catch (error) {
+                showFirestoreWriteError(error, 'บันทึกวันที่เริ่มเวรไม่สำเร็จ');
+                return false;
+            }
+        };
+
+        window.confirmClearMonthlyRoster = () => {
+            const monthKey = getMonthKey(getLocalDateKey(currentDate));
+            showModal(`
+                <div class="bg-white rounded-[40px] w-full p-10 shadow-2xl text-center animate-in zoom-in-95">
+                    <div class="bg-red-50 w-24 h-24 rounded-[32px] flex items-center justify-center mx-auto mb-6 text-red-500 shadow-inner"><i data-lucide="eraser" class="w-12 h-12"></i></div>
+                    <h3 class="text-2xl font-black text-slate-800">เคลียร์ข้อมูลเวร ${escapeHtml(formatMonthLabel(monthKey))}?</h3>
+                    <p class="text-slate-500 mt-3 mb-10 font-bold leading-relaxed">ระบบจะลบวันเริ่มกลุ่ม 1, ข้อมูลสลับเวร และ override ของเดือนนี้เท่านั้น โดยไม่ลบสมาชิกหรือกลุ่มเวร</p>
+                    <div class="flex gap-4">
+                        <button onclick="closeModal()" class="flex-1 py-4 text-slate-400 font-black">ยกเลิก</button>
+                        <button onclick="clearMonthlyRoster(${jsStringAttr(monthKey)})" class="flex-1 bg-red-500 text-white py-4 rounded-[20px] font-black text-lg shadow-xl shadow-red-100 active:scale-95">เคลียร์ข้อมูล</button>
+                    </div>
+                </div>
+            `);
+        };
+
+        window.clearMonthlyRoster = async (monthKey) => {
+            const rosterStartDates = { ...(settings.rosterStartDates || {}) };
+            if (settings.startDate && getMonthKey(settings.startDate) === monthKey) {
+                delete rosterStartDates[monthKey];
+            } else {
+                delete rosterStartDates[monthKey];
+                if (settings.startDate) rosterStartDates[getMonthKey(settings.startDate)] = settings.startDate;
+            }
+
+            const remainingStartDates = Object.values(rosterStartDates).filter(Boolean).sort();
+            const nextStartDate = remainingStartDates[remainingStartDates.length - 1] || null;
+            const batch = writeBatch(db);
+
+            batch.set(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), {
+                startDate: nextStartDate,
+                rosterStartDates
+            }, { merge: true });
+
+            Object.keys(overrides).forEach(dateKey => {
+                if (getMonthKey(dateKey) === monthKey) {
+                    batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', dateKey));
+                }
+            });
+
+            swaps.forEach(item => {
+                if (getMonthKey(item.date1) === monthKey || getMonthKey(item.date2) === monthKey) {
+                    batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'swaps', item.id));
+                }
+            });
+
+            try {
+                await batch.commit();
+                settings = { ...settings, startDate: nextStartDate, rosterStartDates };
+                Object.keys(overrides).forEach(dateKey => {
+                    if (getMonthKey(dateKey) === monthKey) delete overrides[dateKey];
+                });
+                swaps = swaps.filter(item => getMonthKey(item.date1) !== monthKey && getMonthKey(item.date2) !== monthKey);
+                closeModal();
+                render();
+            } catch (error) {
+                showFirestoreWriteError(error, 'เคลียร์ข้อมูลเวรรายเดือนไม่สำเร็จ');
+            }
+        };
+
+        // --- Modals Logic ---
+        function showModal(html) {
+            document.getElementById('modal-content').innerHTML = html;
+            document.getElementById('modal-container').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        window.closeModal = (resetWizard = true) => {
+            document.getElementById('modal-container').classList.add('hidden');
+            if (resetWizard && swapStep > 0) resetSwapWizard();
+        };
+
+        function resetSwapWizard() {
+            swapStep = 0;
+            sourceData = { date: null, memberIndex: null, memberId: null };
+            targetData = { date: null, memberIndex: null, memberId: null };
+            render();
+        }
+
+        window.showLoginModal = () => {
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full p-12 shadow-2xl relative overflow-hidden animate-in zoom-in-95">
+                    <div class="absolute top-0 left-0 w-full h-2.5 bg-blue-600"></div>
+                    <button onclick="closeModal()" class="absolute top-8 right-8 p-3 text-slate-400 hover:bg-slate-100 rounded-full transition-all"><i data-lucide="x"></i></button>
+                    <div class="text-center mb-10">
+                        <div class="bg-blue-50 w-24 h-24 rounded-[32px] flex items-center justify-center mx-auto mb-6 text-blue-600 shadow-inner"><i data-lucide="log-in" class="w-12 h-12"></i></div>
+                        <h3 class="text-3xl font-black text-slate-800">Admin Access</h3>
+                    </div>
+                    <input id="login-pass" type="password" placeholder="••••••••" class="w-full bg-slate-50 border-none rounded-[24px] px-8 py-5 mb-3 outline-none ring-2 ring-transparent focus:ring-blue-600 font-black text-center text-2xl tracking-widest" />
+                    <p id="login-error" class="text-red-500 text-xs mb-6 text-center font-black hidden">รหัสผ่านไม่ถูกต้อง</p>
+                    <button onclick="doLogin()" class="w-full bg-blue-600 text-white py-5 rounded-[24px] font-black text-xl hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all active:scale-95">เข้าสู่ระบบ</button>
+                </div>
+            `);
+            const passInput = document.getElementById('login-pass');
+            if (passInput) {
+                passInput.focus();
+                passInput.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') window.doLogin();
+                });
+            }
+        };
+
+        window.doLogin = () => {
+            const pass = document.getElementById('login-pass').value;
+            if (pass === "admin1234") {
+                isAdminMode = true;
+                showAdminPanel = true;
+                activeAdminTab = 'groups';
+                closeModal();
+                render();
+            } else {
+                document.getElementById('login-error').classList.remove('hidden');
+            }
+        };
+
+        function showSwapModalStep1() {
+            const duty = getDutyMembers(sourceData.date);
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full shadow-2xl overflow-hidden relative flex flex-col max-h-[85vh]">
+                    <div class="absolute top-0 left-0 w-full h-2.5 bg-blue-600"></div>
+                    <div class="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-2xl font-black text-slate-800">ขั้นตอนที่ 1: เลือกคนต้นทาง</h3>
+                            <p class="text-sm text-blue-600 font-bold uppercase tracking-widest mt-1">วันที่: ${formatFullDateThai(sourceData.date)}</p>
+                        </div>
+                        <button onclick="closeModal()" class="p-3 hover:bg-white rounded-2xl text-slate-400"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-8 space-y-4">
+                        ${duty.memberIds.map((mid, idx) => {
+                            const m = allMembers.find(am => am.id === mid);
+                            return `
+                                <button onclick="selectSourcePerson(${jsStringAttr(mid)}, ${idx})" class="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-[24px] hover:border-blue-600 hover:bg-blue-50/50 transition-all group">
+                                    <div class="flex items-center gap-5">
+                                        <div class="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-[18px] font-black text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600">${idx+1}</div>
+                                        <span class="font-black text-lg text-slate-700">${escapeHtml(m?.name || 'ไม่พบชื่อ')}</span>
+                                    </div>
+                                    <i data-lucide="chevron-right" class="text-slate-300"></i>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `);
+        }
+
+        window.selectSourcePerson = (mid, idx) => {
+            sourceData.memberId = mid;
+            sourceData.memberIndex = idx;
+            swapStep = 2;
+            closeModal(false);
+            render();
+            // User now clicks on the calendar for target date
+        };
+
+        function showSwapModalStep3() {
+            const duty = getDutyMembers(targetData.date);
+            const sourcePerson = allMembers.find(m => m.id === sourceData.memberId);
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full shadow-2xl overflow-hidden relative flex flex-col max-h-[85vh]">
+                    <div class="absolute top-0 left-0 w-full h-2.5 bg-blue-600"></div>
+                    <div class="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <div><h3 class="text-2xl font-black text-slate-800">ขั้นตอนที่ 3: เลือกคนปลายทาง</h3></div>
+                        <button onclick="closeModal()" class="p-3 hover:bg-white rounded-2xl text-slate-400"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+                        <div class="bg-blue-600 text-white p-6 rounded-[32px] flex items-center gap-5">
+                            <div class="bg-white/20 p-4 rounded-[20px]"><i data-lucide="user"></i></div>
+                            <div>
+                                <p class="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">คนแรกที่คุณเลือก</p>
+                                <p class="text-xl font-black">${escapeHtml(sourcePerson?.name || 'ไม่พบชื่อ')}</p>
+                                <p class="text-[10px] font-bold opacity-80 uppercase tracking-tighter mt-1">${formatFullDateThai(sourceData.date)}</p>
+                            </div>
+                        </div>
+                        <div class="space-y-3">
+                            <p class="text-sm font-black text-slate-400 uppercase tracking-widest ml-1">เลือกคนปลายทางเพื่อสลับตัวกลับไป (${formatFullDateThai(targetData.date)})</p>
+                            ${duty.memberIds.map((mid, idx) => {
+                                const m = allMembers.find(am => am.id === mid);
+                                return `
+                                    <button id="target-btn-${escapeAttr(mid)}" onclick="selectTargetPerson(${jsStringAttr(mid)}, ${idx})" class="w-full flex items-center justify-between p-5 rounded-[28px] border-2 transition-all bg-white border-slate-100 hover:border-blue-600">
+                                        <div class="flex items-center gap-5">
+                                            <div class="w-10 h-10 flex items-center justify-center rounded-[18px] bg-slate-50 text-slate-400 font-black">${idx+1}</div>
+                                            <span class="font-black text-lg text-slate-700">${escapeHtml(m?.name || 'ไม่พบชื่อ')}</span>
+                                        </div>
+                                        <div id="check-${escapeAttr(mid)}" class="hidden text-emerald-600"><i data-lucide="check"></i></div>
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div class="p-8 bg-slate-50 flex flex-col gap-4">
+                        <button id="btn-execute-swap" onclick="executeSwap()" class="hidden w-full bg-blue-600 text-white py-5 rounded-[28px] font-black text-xl shadow-xl hover:bg-blue-700 flex items-center justify-center gap-3"><i data-lucide="save" class="w-6 h-6"></i> ยืนยันการแลกเวร</button>
+                        <button onclick="closeModal()" class="text-slate-400 font-black text-sm uppercase tracking-widest hover:text-red-500">ยกเลิกขั้นตอนทั้งหมด</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        window.selectTargetPerson = (mid, idx) => {
+            targetData.memberId = mid;
+            targetData.memberIndex = idx;
+            
+            // UI Feedback
+            allMembers.forEach(m => {
+                const btn = document.getElementById(`target-btn-${m.id}`);
+                const check = document.getElementById(`check-${m.id}`);
+                if (btn) btn.classList.remove('border-emerald-500', 'bg-emerald-50');
+                if (check) check.classList.add('hidden');
+            });
+            document.getElementById(`target-btn-${mid}`)?.classList.add('border-emerald-500', 'bg-emerald-50');
+            document.getElementById(`check-${mid}`)?.classList.remove('hidden');
+            document.getElementById('btn-execute-swap')?.classList.remove('hidden');
+            lucide.createIcons();
+        };
+
+        window.executeSwap = async () => {
+            const sourceDuty = getDutyMembers(sourceData.date);
+            const targetDuty = getDutyMembers(targetData.date);
+            if (!sourceData.memberId || !targetData.memberId || sourceData.memberIndex === null || targetData.memberIndex === null) {
+                return;
+            }
+            
+            let newSourceIds = [...sourceDuty.memberIds];
+            let newTargetIds = [...targetDuty.memberIds];
+            
+            newSourceIds[sourceData.memberIndex] = targetData.memberId;
+            newTargetIds[targetData.memberIndex] = sourceData.memberId;
+
+            const member1 = allMembers.find(m => m.id === sourceData.memberId);
+            const member2 = allMembers.find(m => m.id === targetData.memberId);
+            if (!member1 || !member2) {
+                alert('ไม่พบข้อมูลสมาชิก กรุณาลองใหม่อีกครั้ง');
+                resetSwapWizard();
+                return;
+            }
+
+            const batch = writeBatch(db);
+            batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', sourceData.date), { 
+                memberIds: newSourceIds,
+                groupName: sourceDuty.groupName,
+                swappedMemberIds: Array.from(new Set([...(sourceDuty.swappedMemberIds || []), targetData.memberId])),
+                updatedAt: new Date().toISOString() 
+            });
+            batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', targetData.date), { 
+                memberIds: newTargetIds,
+                groupName: targetDuty.groupName,
+                swappedMemberIds: Array.from(new Set([...(targetDuty.swappedMemberIds || []), sourceData.memberId])),
+                updatedAt: new Date().toISOString() 
+            });
+            
+            const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'swaps'));
+            batch.set(logRef, {
+                date1: sourceData.date, member1Name: member1.name || '-',
+                date2: targetData.date, member2Name: member2.name || '-',
+                updatedAt: new Date().toISOString()
+            });
+
+            try {
+                await batch.commit();
+                closeModal();
+                resetSwapWizard();
+            } catch (error) {
+                showFirestoreWriteError(error, 'บันทึกการแลกเวรไม่สำเร็จ');
+            }
+        };
+
+        window.deleteSwap = async (id, date1, date2) => {
+            const batch = writeBatch(db);
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'swaps', id));
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', date1));
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', date2));
+            try {
+                await batch.commit();
+            } catch (error) {
+                showFirestoreWriteError(error, 'ลบประวัติการแลกเวรไม่สำเร็จ');
+            }
+        };
+
+        // --- CRUD Modals ---
+        window.showAddMemberModal = () => {
+            showModal(`
+                <div class="bg-white rounded-[40px] w-full p-10 shadow-2xl">
+                    <h3 class="text-2xl font-black mb-8 flex items-center gap-3"><i data-lucide="user-plus" class="text-emerald-600"></i>เพิ่มสมาชิกใหม่</h3>
+                    <input id="new-member-name" autofocus type="text" placeholder="ชื่อสมาชิก..." class="w-full bg-slate-50 border-none rounded-[20px] px-6 py-5 mb-3 outline-none ring-2 ring-transparent focus:ring-blue-600 font-black text-lg" />
+                    <p id="add-member-error" class="text-red-500 text-sm mb-4 font-black hidden"></p>
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-4 text-slate-400 font-black text-sm uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-all">ยกเลิก</button>
+                        <button id="add-member-confirm" type="button" class="flex-1 py-4 rounded-[20px] font-black text-lg text-white shadow-lg bg-emerald-600 hover:bg-emerald-700">ตกลง</button>
+                    </div>
+                </div>
+            `);
+            const errorEl = document.getElementById('add-member-error');
+            if (errorEl) {
+                errorEl.innerText = '';
+                errorEl.classList.add('hidden');
+            }
+            const confirmBtn = document.getElementById('add-member-confirm');
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', () => window.addMember());
+            }
+            const input = document.getElementById('new-member-name');
+            if (input) {
+                input.focus();
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') window.addMember();
+                });
+            }
+        };
+
+        window.addMember = async () => {
+            const input = document.getElementById('new-member-name');
+            const errorEl = document.getElementById('add-member-error');
+            const confirmBtn = document.getElementById('add-member-confirm');
+            if (confirmBtn?.disabled) return;
+            const name = input ? input.value.trim() : '';
+            if (!name.trim()) {
+                if (errorEl) {
+                    errorEl.innerText = 'กรุณากรอกชื่อสมาชิก';
+                    errorEl.classList.remove('hidden');
+                }
+                return;
+            }
+            try {
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                    confirmBtn.innerText = 'กำลังบันทึก...';
+                    confirmBtn.classList.add('opacity-70', 'cursor-not-allowed');
+                }
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'members'), { name, createdAt: new Date().toISOString() });
+                closeModal();
+            } catch (error) {
+                console.error('Add member failed:', error);
+                if (errorEl) {
+                    const message = firebaseErrorMessage(error, 'เพิ่มสมาชิกไม่สำเร็จ');
+                    setFirebaseStatus('error', message);
+                    errorEl.innerText = message;
+                    errorEl.classList.remove('hidden');
+                }
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerText = 'ตกลง';
+                    confirmBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        };
+
+        window.showAddGroupModal = () => {
+            showModal(`
+                <div class="bg-white rounded-[40px] w-full p-10 shadow-2xl">
+                    <h3 class="text-2xl font-black mb-8 flex items-center gap-3"><i data-lucide="plus" class="text-blue-600"></i>สร้างกลุ่มใหม่</h3>
+                    <input id="new-group-name" autoFocus type="text" placeholder="เช่น กลุ่ม A" class="w-full bg-slate-50 border-none rounded-[20px] px-6 py-5 mb-8 outline-none ring-2 ring-transparent focus:ring-blue-600 font-black text-lg" />
+                    <div class="flex gap-3">
+                        <button onclick="closeModal()" class="flex-1 py-4 text-slate-400 font-black text-sm uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-all">ยกเลิก</button>
+                        <button onclick="addGroup()" class="flex-1 py-4 rounded-[20px] font-black text-lg text-white shadow-lg bg-blue-600 hover:bg-blue-700">ตกลง</button>
+                    </div>
+                </div>
+            `);
+            const input = document.getElementById('new-group-name');
+            if (input) {
+                input.focus();
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') window.addGroup();
+                });
+            }
+        };
+
+        window.addGroup = async () => {
+            const name = document.getElementById('new-group-name').value.trim();
+            if (!name) return;
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'groups'), { name, memberIds: [] });
+                closeModal();
+            } catch (error) {
+                showFirestoreWriteError(error, 'เพิ่มกลุ่มไม่สำเร็จ');
+            }
+        };
+
+        let editingGroupId = null;
+        let tempSelectedIds = [];
+        window.editGroupMembers = (id) => {
+            editingGroupId = id;
+            const g = groups.find(x => x.id === id);
+            if (!g) return;
+            tempSelectedIds = g.memberIds || [];
+            
+            const renderList = () => {
+                const assignedIds = new Set();
+                groups.forEach(group => {
+                    if (group.id !== editingGroupId) {
+                        (group.memberIds || []).forEach(mid => assignedIds.add(mid));
+                    }
+                });
+
+                return allMembers.map((m, index) => {
+                    const isSelected = tempSelectedIds.includes(m.id);
+                    const isOther = assignedIds.has(m.id);
+                    return `
+                        <button onclick="toggleMemberInGroup(${jsStringAttr(m.id)})" ${isOther ? 'disabled' : ''} class="flex items-center gap-4 p-5 rounded-[28px] border-2 transition-all duration-300 text-left group 
+                            ${isOther ? 'border-slate-50 bg-slate-50 opacity-40 cursor-not-allowed' : isSelected ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100 hover:border-slate-300 bg-white shadow-sm'}">
+                            <div class="w-10 h-10 flex items-center justify-center rounded-[18px] text-xs font-black transition-all ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">${index + 1}</div>
+                            <div class="flex flex-col flex-1 truncate">
+                                <span class="font-black text-lg truncate ${isSelected ? 'text-blue-800' : 'text-slate-700'}">${escapeHtml(m.name || 'ไม่ระบุชื่อ')}</span>
+                                ${isOther ? '<span class="text-[9px] text-red-500 font-black uppercase tracking-widest mt-0.5">ลงกลุ่มอื่นแล้ว</span>' : ''}
+                            </div>
+                            ${isSelected ? '<i data-lucide="check-circle-2" class="text-blue-600"></i>' : ''}
+                        </button>
+                    `;
+                }).join('');
+            };
+
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl relative overflow-hidden">
+                    <div class="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <div>
+                            <h3 class="text-3xl font-black text-slate-800">จัดการกลุ่ม: ${escapeHtml(g.name || 'ไม่ระบุชื่อกลุ่ม')}</h3>
+                            <p class="text-sm text-slate-500 font-black mt-1">คลิกที่ชื่อเพื่อเพิ่ม/นำรายชื่อออก</p>
+                        </div>
+                        <button onclick="closeModal()" class="p-4 bg-white shadow-sm hover:bg-slate-100 rounded-[20px] text-slate-400"><i data-lucide="x"></i></button>
+                    </div>
+                    <div id="member-select-list" class="flex-1 overflow-y-auto p-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        ${renderList()}
+                    </div>
+                    <div class="p-8 bg-slate-50 flex gap-4 justify-center">
+                        <button onclick="closeModal()" class="px-10 py-4 text-slate-400 font-black text-sm uppercase tracking-widest hover:bg-slate-100 rounded-2xl transition-all">ยกเลิก</button>
+                        <button onclick="saveGroupMembers()" class="bg-blue-600 text-white px-12 py-4 rounded-[24px] font-black text-lg shadow-xl shadow-blue-100 hover:bg-blue-700 flex items-center gap-3"><i data-lucide="save" class="w-5 h-5"></i> บันทึกข้อมูล</button>
+                    </div>
+                </div>
+            `);
+        };
+
+        window.toggleMemberInGroup = (mid) => {
+            if (tempSelectedIds.includes(mid)) {
+                tempSelectedIds = tempSelectedIds.filter(id => id !== mid);
+            } else {
+                tempSelectedIds.push(mid);
+            }
+            // Selective re-render of modal content
+            const list = document.getElementById('member-select-list');
+            const assignedIds = new Set();
+            groups.forEach(group => {
+                if (group.id !== editingGroupId) {
+                    (group.memberIds || []).forEach(mid => assignedIds.add(mid));
+                }
+            });
+            list.innerHTML = allMembers.map((m, index) => {
+                const isSelected = tempSelectedIds.includes(m.id);
+                const isOther = assignedIds.has(m.id);
+                return `
+                    <button onclick="toggleMemberInGroup(${jsStringAttr(m.id)})" ${isOther ? 'disabled' : ''} class="flex items-center gap-4 p-5 rounded-[28px] border-2 transition-all duration-300 text-left group 
+                        ${isOther ? 'border-slate-50 bg-slate-50 opacity-40 cursor-not-allowed' : isSelected ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100 hover:border-slate-300 bg-white shadow-sm'}">
+                        <div class="w-10 h-10 flex items-center justify-center rounded-[18px] text-xs font-black transition-all ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}">${index + 1}</div>
+                        <div class="flex flex-col flex-1 truncate">
+                            <span class="font-black text-lg truncate ${isSelected ? 'text-blue-800' : 'text-slate-700'}">${escapeHtml(m.name || 'ไม่ระบุชื่อ')}</span>
+                        </div>
+                        ${isSelected ? '<i data-lucide="check-circle-2" class="text-blue-600"></i>' : ''}
+                    </button>
+                `;
+            }).join('');
+            lucide.createIcons();
+        };
+
+        window.saveGroupMembers = async () => {
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'groups', editingGroupId);
+            try {
+                await updateDoc(ref, { memberIds: tempSelectedIds });
+                closeModal();
+            } catch (error) {
+                showFirestoreWriteError(error, 'บันทึกสมาชิกในกลุ่มไม่สำเร็จ');
+            }
+        };
+
+        window.confirmDelete = (type, id) => {
+            const item = type === 'member'
+                ? allMembers.find(m => m.id === id)
+                : groups.find(g => g.id === id);
+            const name = item?.name || 'รายการนี้';
+            showModal(`
+                <div class="bg-white rounded-[40px] w-full p-10 shadow-2xl text-center animate-in zoom-in-95">
+                    <div class="bg-red-50 w-24 h-24 rounded-[32px] flex items-center justify-center mx-auto mb-6 text-red-500 shadow-inner"><i data-lucide="alert-triangle" class="w-12 h-12"></i></div>
+                    <h3 class="text-2xl font-black text-slate-800">ยืนยันการลบทิ้ง?</h3>
+                    <p class="text-slate-500 mt-3 mb-10 font-bold leading-relaxed">คุณแน่ใจว่าต้องการลบ <b>${escapeHtml(name)}</b> ใช่ไหม?</p>
+                    <div class="flex gap-4">
+                        <button onclick="closeModal()" class="flex-1 py-4 text-slate-400 font-black">ยกเลิก</button>
+                        <button onclick="doDelete(${jsStringAttr(type)}, ${jsStringAttr(id)})" class="flex-1 bg-red-500 text-white py-4 rounded-[20px] font-black text-lg shadow-xl shadow-red-100 active:scale-95">ลบทันที</button>
+                    </div>
+                </div>
+            `);
+        };
+
+        window.doDelete = async (type, id) => {
+            const collectionName = type === 'member' ? 'members' : 'groups';
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id));
+                closeModal();
+            } catch (error) {
+                showFirestoreWriteError(error, 'ลบข้อมูลไม่สำเร็จ');
+            }
+        };
+
+        // --- Helpers ---
+        function getLocalDateKey(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function getMonthKey(dateStr) {
+            return String(dateStr || '').slice(0, 7);
+        }
+
+        function getRosterStartDateForMonth(dateStr) {
+            const monthKey = getMonthKey(dateStr);
+            if (!monthKey) return null;
+
+            const monthStartDate = settings.rosterStartDates?.[monthKey];
+            if (monthStartDate) return monthStartDate;
+
+            const legacyStartDate = settings.startDate;
+            if (legacyStartDate && getMonthKey(legacyStartDate) === monthKey) return legacyStartDate;
+
+            return null;
+        }
+
+        function getUpdatedRosterStartDates(newStartDate) {
+            const rosterStartDates = { ...(settings.rosterStartDates || {}) };
+            if (settings.startDate) {
+                rosterStartDates[getMonthKey(settings.startDate)] = settings.startDate;
+            }
+            rosterStartDates[getMonthKey(newStartDate)] = newStartDate;
+            return rosterStartDates;
+        }
+
+        function formatMonthLabel(monthKey) {
+            const [year, month] = String(monthKey || '').split('-').map(Number);
+            if (!year || !month) return '-';
+            return `${MONTHS_TH[month - 1]} ${year + 543}`;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value).replace(/`/g, '&#96;');
+        }
+
+        function jsStringAttr(value) {
+            return escapeAttr(JSON.stringify(String(value ?? '')));
+        }
+
+        function formatDateTimeThai(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleString('th-TH');
+        }
+
+        function formatDisplayDate(dateStr) {
+            if (!dateStr) return "-";
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+            const [y, m, d] = dateStr.split('-');
+            return `${d}/${m}/${parseInt(y) + 543}`;
+        }
+
+        function formatFullDateThai(dateStr) {
+            if (!dateStr) return "";
+            const [y, m, d] = dateStr.split('-');
+            return `${parseInt(d)} ${MONTHS_TH[parseInt(m) - 1]} ${parseInt(y) + 543}`;
+        }
+    </script>
+</body>
+</html>
