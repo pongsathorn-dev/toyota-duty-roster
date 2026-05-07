@@ -164,6 +164,7 @@
         let swapStep = 0; // 0: Idle, 1: Select Source, 2: Select Target Date, 3: Select Target Person
         let sourceData = { date: null, memberIndex: null, memberId: null };
         let targetData = { date: null, memberIndex: null, memberId: null };
+        let dailyAssignmentData = { date: null, memberIndex: null, fromMemberId: null, toMemberId: null };
 
         const MONTHS_TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
         const DAYS_OF_WEEK = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
@@ -499,19 +500,19 @@
             }
 
             list.innerHTML = swaps.map(item => `
-                <div class="flex flex-col md:flex-row md:items-center justify-between p-6 bg-white rounded-[32px] border border-slate-100 hover:border-blue-300 hover:bg-blue-50/30 transition-all duration-300 shadow-sm group">
+                <div class="flex flex-col md:flex-row md:items-center justify-between p-6 bg-white rounded-[32px] border border-slate-100 ${item.type === 'daily-assignment' ? 'hover:border-emerald-300 hover:bg-emerald-50/30' : 'hover:border-blue-300 hover:bg-blue-50/30'} transition-all duration-300 shadow-sm group">
                     <div class="flex flex-col md:flex-row md:items-center gap-4 flex-1">
                         <div class="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${formatDisplayDate(item.date1)}</p>
                             <p class="font-black text-slate-700">${escapeHtml(item.member1Name || '-')}</p>
                         </div>
                         <div class="flex items-center justify-center">
-                            <div class="bg-blue-600 text-white p-2 rounded-full shadow-lg">
-                                <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
+                            <div class="${item.type === 'daily-assignment' ? 'bg-emerald-600' : 'bg-blue-600'} text-white p-2 rounded-full shadow-lg">
+                                <i data-lucide="${item.type === 'daily-assignment' ? 'user-right' : 'arrow-right-left'}" class="w-4 h-4"></i>
                             </div>
                         </div>
                         <div class="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${formatDisplayDate(item.date2)}</p>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${item.type === 'daily-assignment' ? 'ผู้รับเวรแทน' : formatDisplayDate(item.date2)}</p>
                             <p class="font-black text-slate-700">${escapeHtml(item.member2Name || '-')}</p>
                         </div>
                     </div>
@@ -520,7 +521,7 @@
                             <p class="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">บันทึกเมื่อ</p>
                             <p class="text-xs font-black text-slate-400">${formatDateTimeThai(item.updatedAt)}</p>
                         </div>
-                        ${isAdminMode ? `<button onclick="deleteSwap('${item.id}', '${item.date1}', '${item.date2}')" class="p-4 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all shadow-sm bg-white border border-transparent hover:border-red-100"><i data-lucide="trash-2" class="w-5 h-5"></i></button>` : ''}
+                        ${isAdminMode ? `<button onclick="deleteHistory(${jsStringAttr(item.id)}, ${jsStringAttr(item.type || 'swap')}, ${jsStringAttr(item.date1)}, ${jsStringAttr(item.date2 || '')})" class="p-4 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all shadow-sm bg-white border border-transparent hover:border-red-100"><i data-lucide="trash-2" class="w-5 h-5"></i></button>` : ''}
                     </div>
                 </div>
             `).join('');
@@ -756,7 +757,12 @@
             swapStep = 0;
             sourceData = { date: null, memberIndex: null, memberId: null };
             targetData = { date: null, memberIndex: null, memberId: null };
+            dailyAssignmentData = { date: null, memberIndex: null, fromMemberId: null, toMemberId: null };
             render();
+        }
+
+        function resetDailyAssignment() {
+            dailyAssignmentData = { date: null, memberIndex: null, fromMemberId: null, toMemberId: null };
         }
 
         window.showLoginModal = () => {
@@ -820,6 +826,16 @@
                                 </button>
                             `;
                         }).join('')}
+                    </div>
+                    <div class="p-6 bg-slate-50 border-t border-slate-100 flex flex-col gap-3">
+                        <button onclick="showDailyAssignmentSourceModal(${jsStringAttr(sourceData.date)})" class="w-full bg-emerald-600 text-white py-4 rounded-[24px] font-black text-lg shadow-xl shadow-emerald-100 hover:bg-emerald-700 flex items-center justify-center gap-3">
+                            <i data-lucide="user-cog" class="w-5 h-5"></i> เปลี่ยนคนรายวัน
+                        </button>
+                        ${duty.isOverride ? `
+                            <button onclick="resetDayOverride(${jsStringAttr(sourceData.date)})" class="w-full bg-white text-amber-700 py-4 rounded-[24px] font-black text-sm border border-amber-200 hover:bg-amber-50 flex items-center justify-center gap-3">
+                                <i data-lucide="rotate-ccw" class="w-4 h-4"></i> คืนค่าเวรอัตโนมัติของวันนี้
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
             `);
@@ -919,12 +935,14 @@
             batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', sourceData.date), { 
                 memberIds: newSourceIds,
                 groupName: sourceDuty.groupName,
+                overrideType: 'swap',
                 swappedMemberIds: Array.from(new Set([...(sourceDuty.swappedMemberIds || []), targetData.memberId])),
                 updatedAt: new Date().toISOString() 
             });
             batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', targetData.date), { 
                 memberIds: newTargetIds,
                 groupName: targetDuty.groupName,
+                overrideType: 'swap',
                 swappedMemberIds: Array.from(new Set([...(targetDuty.swappedMemberIds || []), sourceData.memberId])),
                 updatedAt: new Date().toISOString() 
             });
@@ -943,6 +961,178 @@
             } catch (error) {
                 showFirestoreWriteError(error, 'บันทึกการแลกเวรไม่สำเร็จ');
             }
+        };
+
+        window.showDailyAssignmentSourceModal = (dateStr) => {
+            resetDailyAssignment();
+            dailyAssignmentData.date = dateStr;
+            const duty = getDutyMembers(dateStr);
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full shadow-2xl overflow-hidden relative flex flex-col max-h-[85vh]">
+                    <div class="absolute top-0 left-0 w-full h-2.5 bg-emerald-600"></div>
+                    <div class="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-2xl font-black text-slate-800">เลือกคนที่ต้องการยกเวร</h3>
+                            <p class="text-sm text-emerald-600 font-bold uppercase tracking-widest mt-1">วันที่: ${formatFullDateThai(dateStr)}</p>
+                        </div>
+                        <button onclick="showSwapModalStep1()" class="p-3 hover:bg-white rounded-2xl text-slate-400"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-8 space-y-4">
+                        ${duty.memberIds.map((mid, idx) => {
+                            const m = allMembers.find(am => am.id === mid);
+                            return `
+                                <button onclick="selectDailyAssignmentSource(${jsStringAttr(mid)}, ${idx})" class="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-[24px] hover:border-emerald-600 hover:bg-emerald-50/50 transition-all group">
+                                    <div class="flex items-center gap-5">
+                                        <div class="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-[18px] font-black text-slate-400 group-hover:bg-emerald-100 group-hover:text-emerald-600">${idx + 1}</div>
+                                        <span class="font-black text-lg text-slate-700">${escapeHtml(m?.name || 'ไม่พบชื่อ')}</span>
+                                    </div>
+                                    <i data-lucide="chevron-right" class="text-slate-300"></i>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `);
+        };
+
+        window.selectDailyAssignmentSource = (mid, idx) => {
+            dailyAssignmentData.fromMemberId = mid;
+            dailyAssignmentData.memberIndex = idx;
+            dailyAssignmentData.toMemberId = null;
+            showDailyAssignmentTargetModal();
+        };
+
+        function showDailyAssignmentTargetModal() {
+            const duty = getDutyMembers(dailyAssignmentData.date);
+            const currentMember = allMembers.find(m => m.id === dailyAssignmentData.fromMemberId);
+            const blockedIds = new Set(duty.memberIds.filter(mid => mid !== dailyAssignmentData.fromMemberId));
+            const candidates = allMembers.filter(m => !blockedIds.has(m.id) && m.id !== dailyAssignmentData.fromMemberId);
+
+            showModal(`
+                <div class="bg-white rounded-[48px] w-full shadow-2xl overflow-hidden relative flex flex-col max-h-[85vh]">
+                    <div class="absolute top-0 left-0 w-full h-2.5 bg-emerald-600"></div>
+                    <div class="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <div>
+                            <h3 class="text-2xl font-black text-slate-800">เลือกคนรับเวรแทน</h3>
+                            <p class="text-sm text-emerald-600 font-bold uppercase tracking-widest mt-1">วันที่: ${formatFullDateThai(dailyAssignmentData.date)}</p>
+                        </div>
+                        <button onclick="showDailyAssignmentSourceModal(${jsStringAttr(dailyAssignmentData.date)})" class="p-3 hover:bg-white rounded-2xl text-slate-400"><i data-lucide="arrow-left"></i></button>
+                    </div>
+                    <div class="p-8 border-b border-slate-100 bg-emerald-50/60">
+                        <p class="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-2">คนที่ยกเวร</p>
+                        <p class="text-xl font-black text-slate-800">${escapeHtml(currentMember?.name || 'ไม่พบชื่อ')}</p>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-8 space-y-4">
+                        ${candidates.length > 0 ? candidates.map((m, idx) => `
+                            <button id="daily-target-btn-${escapeAttr(m.id)}" onclick="selectDailyAssignmentTarget(${jsStringAttr(m.id)})" class="w-full flex items-center justify-between p-5 rounded-[28px] border-2 transition-all bg-white border-slate-100 hover:border-emerald-600">
+                                <div class="flex items-center gap-5">
+                                    <div class="w-10 h-10 flex items-center justify-center rounded-[18px] bg-slate-50 text-slate-400 font-black">${idx + 1}</div>
+                                    <span class="font-black text-lg text-slate-700">${escapeHtml(m.name || 'ไม่พบชื่อ')}</span>
+                                </div>
+                                <div id="daily-check-${escapeAttr(m.id)}" class="hidden text-emerald-600"><i data-lucide="check"></i></div>
+                            </button>
+                        `).join('') : `
+                            <div class="py-12 text-center text-slate-400 font-black">ไม่มีรายชื่อที่สามารถรับเวรแทนได้</div>
+                        `}
+                    </div>
+                    <div class="p-8 bg-slate-50 flex flex-col gap-4">
+                        <button id="btn-save-daily-assignment" onclick="saveDailyAssignment()" class="hidden w-full bg-emerald-600 text-white py-5 rounded-[28px] font-black text-xl shadow-xl hover:bg-emerald-700 flex items-center justify-center gap-3"><i data-lucide="save" class="w-6 h-6"></i> ยืนยันการเปลี่ยนคนรายวัน</button>
+                        <button onclick="showSwapModalStep1()" class="text-slate-400 font-black text-sm uppercase tracking-widest hover:text-slate-600">กลับไปหน้าจัดการวัน</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        window.selectDailyAssignmentTarget = (mid) => {
+            dailyAssignmentData.toMemberId = mid;
+            allMembers.forEach(m => {
+                const btn = document.getElementById(`daily-target-btn-${m.id}`);
+                const check = document.getElementById(`daily-check-${m.id}`);
+                if (btn) btn.classList.remove('border-emerald-500', 'bg-emerald-50');
+                if (check) check.classList.add('hidden');
+            });
+            document.getElementById(`daily-target-btn-${mid}`)?.classList.add('border-emerald-500', 'bg-emerald-50');
+            document.getElementById(`daily-check-${mid}`)?.classList.remove('hidden');
+            document.getElementById('btn-save-daily-assignment')?.classList.remove('hidden');
+            lucide.createIcons();
+        };
+
+        window.saveDailyAssignment = async () => {
+            const { date, memberIndex, fromMemberId, toMemberId } = dailyAssignmentData;
+            if (!date || memberIndex === null || !fromMemberId || !toMemberId) return;
+
+            const duty = getDutyMembers(date);
+            const nextMemberIds = [...duty.memberIds];
+            nextMemberIds[memberIndex] = toMemberId;
+            const fromMember = allMembers.find(m => m.id === fromMemberId);
+            const toMember = allMembers.find(m => m.id === toMemberId);
+
+            try {
+                const batch = writeBatch(db);
+                batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', date), {
+                    memberIds: nextMemberIds,
+                    groupName: duty.groupName,
+                    overrideType: 'daily-assignment',
+                    swappedMemberIds: Array.from(new Set([
+                        ...(duty.swappedMemberIds || []).filter(mid => mid !== fromMemberId),
+                        toMemberId
+                    ])),
+                    updatedAt: new Date().toISOString()
+                });
+                const logRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'swaps'));
+                batch.set(logRef, {
+                    type: 'daily-assignment',
+                    date1: date,
+                    member1Name: fromMember?.name || '-',
+                    date2: date,
+                    member2Name: toMember?.name || '-',
+                    updatedAt: new Date().toISOString()
+                });
+                await batch.commit();
+                resetDailyAssignment();
+                closeModal();
+            } catch (error) {
+                showFirestoreWriteError(error, 'บันทึกการเปลี่ยนคนรายวันไม่สำเร็จ');
+            }
+        };
+
+        window.resetDayOverride = async (dateStr) => {
+            const overrideEntry = overrides[dateStr];
+            if (!overrideEntry) {
+                closeModal();
+                return;
+            }
+            if (overrideEntry.overrideType !== 'daily-assignment') {
+                alert('วันนี้มีการสลับเวรอยู่ จึงยังคืนค่าอัตโนมัติจากปุ่มนี้ไม่ได้');
+                return;
+            }
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', dateStr));
+                resetDailyAssignment();
+                closeModal();
+            } catch (error) {
+                showFirestoreWriteError(error, 'คืนค่าเวรอัตโนมัติของวันไม่สำเร็จ');
+            }
+        };
+
+        window.deleteHistory = async (id, type, date1, date2) => {
+            if (type === 'daily-assignment') {
+                const overrideEntry = overrides[date1];
+                if (overrideEntry?.overrideType !== 'daily-assignment') {
+                    alert('ไม่สามารถลบประวัตินี้ได้ เพราะข้อมูลเวรของวันดังกล่าวไม่ใช่การเปลี่ยนคนรายวันล่าสุด');
+                    return;
+                }
+                const batch = writeBatch(db);
+                batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'swaps', id));
+                batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'overrides', date1));
+                try {
+                    await batch.commit();
+                } catch (error) {
+                    showFirestoreWriteError(error, 'ลบประวัติการเปลี่ยนคนรายวันไม่สำเร็จ');
+                }
+                return;
+            }
+            return window.deleteSwap(id, date1, date2);
         };
 
         window.deleteSwap = async (id, date1, date2) => {
