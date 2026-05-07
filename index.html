@@ -154,7 +154,7 @@
         let groups = [];
         let overrides = {};
         let swaps = [];
-        let settings = { startDate: getLocalDateKey(new Date()) };
+        let settings = { startDate: getLocalDateKey(new Date()), markedMemberIds: [] };
         let dataLoaded = false;
         let firebaseStatus = { type: 'loading', message: 'กำลังเชื่อมต่อ Firebase...' };
         let firebaseHasError = false;
@@ -287,6 +287,20 @@
             return { memberIds: autoData.memberIds, groupName: autoData.group?.name || null, isOverride: false, swappedMemberIds: [] };
         }
 
+        function getMarkedMemberIds() {
+            return Array.isArray(settings.markedMemberIds) ? settings.markedMemberIds : [];
+        }
+
+        function isMarkedMember(memberId) {
+            return getMarkedMemberIds().includes(memberId);
+        }
+
+        function getMarkedDutyMemberIds(dateStr, dutyData = null) {
+            const duty = dutyData || getDutyMembers(dateStr);
+            const markedIds = new Set(getMarkedMemberIds());
+            return (duty.memberIds || []).filter(memberId => markedIds.has(memberId));
+        }
+
         // --- Render Functions ---
         function render() {
             renderHeader();
@@ -324,6 +338,71 @@
             };
             el.className = styles[firebaseStatus.type] || styles.error;
             el.innerText = firebaseStatus.message;
+        }
+
+        function decorateMemberAdminList() {
+            const list = document.querySelector('#admin-content .p-6.md\\:p-10.space-y-3');
+            if (!list) return;
+
+            const rows = list.querySelectorAll(':scope > div');
+            rows.forEach((row, index) => {
+                const member = allMembers[index];
+                if (!member) return;
+
+                const isMarked = isMarkedMember(member.id);
+                row.classList.toggle('border-rose-300', isMarked);
+                row.classList.toggle('bg-rose-50/60', isMarked);
+                row.classList.toggle('shadow-rose-100', isMarked);
+                if (isMarked) {
+                    row.classList.remove('border-slate-100');
+                }
+
+                const left = row.querySelector(':scope > div');
+                const numberBadge = left?.querySelector(':scope > div');
+                const nameLabel = left?.querySelector('span');
+                if (numberBadge) {
+                    numberBadge.classList.toggle('bg-rose-500', isMarked);
+                    numberBadge.classList.toggle('text-white', isMarked);
+                    if (isMarked) {
+                        numberBadge.classList.remove('bg-slate-100', 'text-slate-400');
+                    }
+                }
+                if (nameLabel) {
+                    nameLabel.classList.toggle('text-rose-700', isMarked);
+                    if (isMarked) {
+                        nameLabel.classList.remove('text-slate-700');
+                    }
+                }
+
+                let actions = row.querySelector('[data-member-actions]');
+                if (!actions) {
+                    const deleteButton = row.querySelector('button');
+                    if (!deleteButton) return;
+                    actions = document.createElement('div');
+                    actions.setAttribute('data-member-actions', 'true');
+                    actions.className = 'flex items-center gap-2';
+                    row.appendChild(actions);
+                    actions.appendChild(deleteButton);
+                }
+
+                let markButton = actions.querySelector('[data-mark-button]');
+                if (!markButton) {
+                    markButton = document.createElement('button');
+                    markButton.type = 'button';
+                    markButton.setAttribute('data-mark-button', 'true');
+                    markButton.className = 'px-4 py-2 rounded-2xl text-xs font-black transition-all';
+                    markButton.addEventListener('click', () => window.toggleMarkedMember(member.id));
+                    actions.insertBefore(markButton, actions.firstChild);
+                }
+
+                markButton.className = `px-4 py-2 rounded-2xl text-xs font-black transition-all ${isMarked ? 'bg-rose-500 text-white shadow-lg shadow-rose-100 hover:bg-rose-600' : 'bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-500'}`;
+                markButton.innerHTML = `
+                    <span class="flex items-center gap-2">
+                        <i data-lucide="${isMarked ? 'star' : 'star-off'}" class="w-4 h-4"></i>
+                        ${isMarked ? 'Unmark' : 'Mark'}
+                    </span>
+                `;
+            });
         }
 
         function handleFirestoreError(collectionName) {
@@ -414,6 +493,8 @@
                 const dateObj = new Date(year, month, d);
                 const dateKey = getLocalDateKey(dateObj);
                 const duty = getDutyMembers(dateKey);
+                const markedDutyMemberIds = getMarkedDutyMemberIds(dateKey, duty);
+                const hasMarkedDutyMember = markedDutyMemberIds.length > 0;
                 const isToday = new Date().toDateString() === dateObj.toDateString();
                 const isRosterStartDate = dateKey === getRosterStartDateForMonth(dateKey);
                 const isSource = sourceData.date === dateKey;
@@ -424,7 +505,7 @@
                 const bg = isSun ? 'bg-red-50/30' : isSat ? 'bg-purple-50/30' : 'bg-white';
                 const dayStateClasses = [
                     isToday ? 'ring-2 ring-blue-500 bg-blue-50/20' : '',
-                    isRosterStartDate ? 'border-emerald-400 ring-2 ring-emerald-400 bg-emerald-50/40' : '',
+                    hasMarkedDutyMember ? 'border-rose-400 bg-rose-50/70 shadow-lg shadow-rose-100' : '',
                     isPickingRosterStartDate ? 'hover:ring-4 hover:ring-emerald-400 hover:border-emerald-500' : '',
                     isSource ? 'ring-4 ring-amber-500 border-amber-500 shadow-2xl z-10' : '',
                     isTarget ? 'ring-4 ring-blue-500 border-blue-500 shadow-2xl z-10' : (!isRosterStartDate && !isSource ? 'border-slate-200' : '')
@@ -435,9 +516,11 @@
                         ${bg} ${dayStateClasses}">
                         <div class="flex justify-between items-start mb-2">
                             <span class="text-sm font-black ${isToday ? 'text-blue-600' : (isSun ? 'text-red-500' : isSat ? 'text-purple-500' : 'text-slate-400')}">${d}</span>
-                            ${isRosterStartDate ? '<div class="bg-emerald-500 text-white p-0.5 rounded-full"><i data-lucide="flag" class="w-3 h-3"></i></div>' : ''}
-                            ${isAdminMode && swapStep === 0 && !isPickingRosterStartDate ? '<div class="opacity-0 group-hover:opacity-100 p-1 text-blue-500"><i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i></div>' : ''}
-                            ${isSource || isTarget ? '<div class="bg-blue-500 text-white p-0.5 rounded-full"><i data-lucide="check" class="w-3 h-3"></i></div>' : ''}
+                            <div class="flex items-center gap-1">
+                                ${hasMarkedDutyMember ? '<div class="bg-rose-500 text-white p-0.5 rounded-full shadow-sm"><i data-lucide="star" class="w-3 h-3"></i></div>' : ''}
+                                ${isAdminMode && swapStep === 0 && !isPickingRosterStartDate ? '<div class="opacity-0 group-hover:opacity-100 p-1 text-blue-500"><i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i></div>' : ''}
+                                ${isSource || isTarget ? '<div class="bg-blue-500 text-white p-0.5 rounded-full"><i data-lucide="check" class="w-3 h-3"></i></div>' : ''}
+                            </div>
                         </div>
                         ${duty.groupName ? `
                             <div class="space-y-2">
@@ -449,9 +532,10 @@
                                     ${duty.memberIds.slice(0, 3).map(mid => {
                                         const m = allMembers.find(am => am.id === mid);
                                         const isSwappedMember = (duty.swappedMemberIds || []).includes(mid);
+                                        const isMarked = markedDutyMemberIds.includes(mid);
                                         return m ? `
-                                            <div class="flex items-center gap-1.5 text-[9px] md:text-[11px] ${isSwappedMember ? 'text-amber-700 bg-amber-50/90 border-amber-200' : 'text-slate-600 bg-slate-50/80 border-slate-100'} px-2 py-0.5 rounded-lg border truncate font-bold">
-                                                ${isSwappedMember ? '<i data-lucide="arrow-right-left" class="w-2.5 h-2.5 shrink-0"></i>' : ''}
+                                            <div class="flex items-center gap-1.5 text-[9px] md:text-[11px] ${isMarked ? 'text-rose-700 bg-rose-100 border-rose-300 ring-1 ring-rose-200' : (isSwappedMember ? 'text-amber-700 bg-amber-50/90 border-amber-200' : 'text-slate-600 bg-slate-50/80 border-slate-100')} px-2 py-0.5 rounded-lg border truncate font-bold">
+                                                ${isMarked ? '<i data-lucide="star" class="w-2.5 h-2.5 shrink-0"></i>' : (isSwappedMember ? '<i data-lucide="arrow-right-left" class="w-2.5 h-2.5 shrink-0"></i>' : '')}
                                                 <span class="truncate">${escapeHtml(m.name)}</span>
                                             </div>
                                         ` : '';
@@ -591,6 +675,10 @@
                         </div>
                     </div>
                 `;
+            }
+
+            if (activeAdminTab === 'members') {
+                decorateMemberAdminList();
             }
         }
 
@@ -738,6 +826,22 @@
                 render();
             } catch (error) {
                 showFirestoreWriteError(error, 'เคลียร์ข้อมูลเวรรายเดือนไม่สำเร็จ');
+            }
+        };
+
+        window.toggleMarkedMember = async (memberId) => {
+            const markedIds = getMarkedMemberIds();
+            const nextMarkedIds = markedIds.includes(memberId)
+                ? markedIds.filter(id => id !== memberId)
+                : [...markedIds, memberId];
+            try {
+                await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), {
+                    markedMemberIds: nextMarkedIds
+                }, { merge: true });
+                settings = { ...settings, markedMemberIds: nextMarkedIds };
+                render();
+            } catch (error) {
+                showFirestoreWriteError(error, 'บันทึกการทำเครื่องหมายสมาชิกไม่สำเร็จ');
             }
         };
 
@@ -1361,7 +1465,18 @@
         window.doDelete = async (type, id) => {
             const collectionName = type === 'member' ? 'members' : 'groups';
             try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id));
+                if (type === 'member' && isMarkedMember(id)) {
+                    const nextMarkedMemberIds = getMarkedMemberIds().filter(memberId => memberId !== id);
+                    const batch = writeBatch(db);
+                    batch.delete(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id));
+                    batch.set(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), {
+                        markedMemberIds: nextMarkedMemberIds
+                    }, { merge: true });
+                    await batch.commit();
+                    settings = { ...settings, markedMemberIds: nextMarkedMemberIds };
+                } else {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', collectionName, id));
+                }
                 closeModal();
             } catch (error) {
                 showFirestoreWriteError(error, 'ลบข้อมูลไม่สำเร็จ');
